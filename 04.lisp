@@ -57,8 +57,8 @@ MXMXAXMASX
       (loop for j from 0 below (- width 2) do
         (when (and (or (try-search array "MAS" i j 1 1)
                        (try-search array "SAM" i j 1 1))
-                   (or (try-search array "MAS" i (+ j 2) -1 -1)
-                       (try-search array "SAM" i (+ j 2) -1 -1)))
+                   (or (try-search array "MAS" i (+ j 2) 1 -1)
+                       (try-search array "SAM" i (+ j 2) 1 -1)))
           (incf count))))
     count))
 
