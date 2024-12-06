@@ -1,4 +1,3 @@
-(require 'alexandria)
 (require 'sb-sprof)
 
 (defparameter *example-input*
@@ -21,7 +20,20 @@
                      collect line)))
     (make-array (list (length lines) (length (first lines)))
                 :initial-contents lines
-                :element-type 'character)))
+                :element-type 'base-char)))
+
+(deftype 2d-map () '(simple-array base-char (* *)))
+
+(defun copy-map (map)
+  (declare (type 2d-map map))
+  (let* ((new-map (make-array (list (array-dimension map 0)
+                                    (array-dimension map 1))
+                              :element-type 'base-char)))
+    (dotimes (i (array-total-size map))
+      (setf (row-major-aref new-map i)
+            (row-major-aref map i)))
+    new-map))
+
 
 (defun find-position (map)
   (loop for i from 0 below (array-dimension map 0) do
@@ -34,9 +46,14 @@
 (defparameter *directions* #((-1 . 0) (0 . -1) (1 . 0) (0 . 1)))
 (defparameter *direction-indicators* "^<v>")
 
+(declaim (inline turn))
 (defun turn (direction) (mod (- direction 1) 4))
 
-(defstruct state map position direction trails)
+(defstruct state
+  (map nil :type 2d-map)
+  (position nil :type (cons fixnum fixnum))
+  (direction nil :type fixnum)
+  (trails nil :type (vector (simple-array bit (* *)))))
 
 (defun make-empty-trails (map)
   (let* ((dimensions (array-dimensions map)))
@@ -59,24 +76,28 @@
 
 
 
+(declaim (ftype (function (state) state) deep-copy-state))
 (defun deep-copy-state (state)
   (with-slots (map position direction trails) state
-    (make-state :map (alexandria:copy-array map)
+    (make-state :map (copy-map map)
                 :position position
                 :direction direction
                 :trails (make-empty-trails map) ;; trails don't need to be copied
                 )))
 
+(declaim (ftype (function (state cons) state) make-state-with-boulder))
 (defun make-state-with-boulder (state boulder)
   (let ((state (deep-copy-state state)))
     (setf (aref (state-map state) (car boulder) (cdr boulder)) #\#)
     state))
 
+(declaim (inline move))
 (defun move (point direction)
   (destructuring-bind (i . j) point
     (destructuring-bind (di . dj) (aref *directions* direction)
       (cons (+ i di) (+ j dj)))))
 
+(declaim (inline map-ref))
 (defun map-ref (map point)
   (destructuring-bind (i . j) point
     (cond ((and (< -1 i (array-dimension map 0))
@@ -139,6 +160,8 @@
 
 ;;(with-input-from-string (f *example-input*) (advent-6b f))
 ;;(print (with-open-file (f "06_input.txt") (advent-6b f)))
+
+(time (with-open-file (f "06_input.txt") (advent-6b f)))
 
 (sb-sprof:with-profiling (:report :flat)
   (with-open-file (f "06_input.txt") (advent-6b f)))
