@@ -35,16 +35,15 @@
 
 (defun turn (direction) (mod (- direction 1) 4))
 
-(defstruct state map position direction trails steps)
+(defstruct state map position direction trails)
 
 (defun make-empty-trails (map)
-  (let* ((height (array-dimension map 0))
-         (width (array-dimension map 1)))
-    (coerce
-     (loop for i across *directions*
-           collect (make-array (list height width)
-                               :initial-element nil))
-     'vector)))
+  (let* ((dimensions (array-dimensions map)))
+    (vector
+     (make-array dimensions :element-type 'bit :initial-element 0)
+     (make-array dimensions :element-type 'bit :initial-element 0)
+     (make-array dimensions :element-type 'bit :initial-element 0)
+     (make-array dimensions :element-type 'bit :initial-element 0))))
 
 
 (defun make-initial-state (map)
@@ -54,22 +53,18 @@
            (make-state :map map
                        :position position
                        :direction 0
-                       :trails trails
-                       :steps 0)))
+                       :trails trails)))
     state))
 
 
 
 (defun deep-copy-state (state)
-  (with-slots (map position direction trails steps) state
+  (with-slots (map position direction trails) state
     (make-state :map (alexandria:copy-array map)
                 :position position
                 :direction direction
-                :trails (coerce
-                         (loop for direction from 0 to 3
-                               collect (alexandria:copy-array (aref trails direction)))
-                         'vector)
-                :steps steps)))
+                :trails (make-empty-trails map) ;; trails don't need to be copied
+                )))
 
 (defun make-state-with-boulder (state boulder)
   (let ((state (deep-copy-state state)))
@@ -92,11 +87,10 @@
 
 (defun one-move (state)
   (destructuring-bind (i . j) (state-position state)
-    (with-slots (map position trails direction steps) state
-      (when (aref (aref trails direction) i j)
+    (with-slots (map position trails direction) state
+      (when (= 1 (aref (aref trails direction) i j))
         (return-from one-move :loop))
-        (setf (aref (aref trails direction) i j) t)
-      (incf steps)
+      (setf (aref (aref trails direction) i j) 1)
 
       (let* ((new-position (move position direction))
              (what-i-see (map-ref map new-position)))
@@ -122,7 +116,7 @@
       (loop for i from 0 below (array-dimension map 0) do
         (loop for j from 0 below (array-dimension map 1) do
           (loop for direction from 0 to 3 do
-            (let ((been-here (aref (aref trails direction) i j))
+            (let ((been-here (= 1 (aref (aref trails direction) i j)))
                   (boulder (move (cons i j) direction)))
               (when been-here
                 (when (and
@@ -143,5 +137,4 @@
 
 
 ;;(with-input-from-string (f *example-input*) (advent-6b f))
-(print (with-open-file (f "06_input.txt") (advent-6b f)))
-(terpri)
+;;(print (with-open-file (f "06_input.txt") (advent-6b f)))
