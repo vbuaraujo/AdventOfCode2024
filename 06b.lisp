@@ -1,3 +1,5 @@
+(require 'alexandria)
+
 (defparameter *example-input*
   "....#.....
 .........#
@@ -45,10 +47,6 @@
      'vector)))
 
 
-(defun update-trail (trails position direction steps)
-  (destructuring-bind (i . j) position
-    (setf (aref (aref trails direction) i j) steps)))
-
 (defun make-initial-state (map)
   (let* ((position (find-position map))
          (trails (make-empty-trails map))
@@ -60,108 +58,90 @@
                        :steps 0)))
     state))
 
+
+
+(defun deep-copy-state (state)
+  (with-slots (map position direction trails steps) state
+    (make-state :map (alexandria:copy-array map)
+                :position position
+                :direction direction
+                :trails (coerce
+                         (loop for direction from 0 to 3
+                               collect (alexandria:copy-array (aref trails direction)))
+                         'vector)
+                :steps steps)))
+
+(defun make-state-with-boulder (state boulder)
+  (let ((state (deep-copy-state state)))
+    (setf (aref (state-map state) (car boulder) (cdr boulder)) #\#)
+    state))
+
+(defun move (point direction)
+  (destructuring-bind (i . j) point
+    (destructuring-bind (di . dj) (aref *directions* direction)
+      (cons (+ i di) (+ j dj)))))
+
+(defun map-ref (map point)
+  (destructuring-bind (i . j) point
+    (cond ((and (< -1 i (array-dimension map 0))
+                (< -1 j (array-dimension map 1)))
+           (case (aref map i j)
+             (#\# :boulder)
+             (t   :free)))
+          (t :out))))
+
 (defun one-move (state)
-  (let* ((map (state-map state))
-         (height (array-dimension map 0))
-         (width (array-dimension map 1)))
-    (update-trail (state-trails state)
-                  (state-position state)
-                  (state-direction state)
-                  (state-steps state))
-    (incf (state-steps state))
-    (destructuring-bind (i . j) (state-position state)
-      (destructuring-bind (di . dj) (aref *directions* (state-direction state))
-        (let* ((new-i (+ i di)) (new-j (+ j dj)))
-          (cond ((and (< -1 new-i height) (< -1 new-j width))
-                 ;; we are within the map. Can we move there?
-                 (let ((thing (aref map new-i new-j)))
-                   (case thing
-                     ((#\. #\X) ;; Move there and leave a trail
+  (destructuring-bind (i . j) (state-position state)
+    (with-slots (map position trails direction steps) state
+      (when (aref (aref trails direction) i j)
+        (return-from one-move :loop))
+        (setf (aref (aref trails direction) i j) t)
+      (incf steps)
 
-                      (setf (aref map i j) #\X)
-                      (setf (aref map new-i new-j)
-                            (aref *direction-indicators* (state-direction state)))
-                      (setf (state-position state) (cons new-i new-j))
+      (let* ((new-position (move position direction))
+             (what-i-see (map-ref map new-position)))
+        (ecase what-i-see
+          (:boulder
+           (setf direction (turn direction))
+           :continue)
+          (:out
+           :out)
+          (:free
+           (setf position new-position)
+           :continue))))))
 
-                      )
-                     (otherwise ;; Can't move, let's turn and try again.
-                      (setf (state-direction state) (turn (state-direction state)))
-                      (setf (aref map i j)
-                            (aref *direction-indicators* (state-direction state)))
-                      (one-move state)))
-                   state))
-                (t ;; We are out!
-                 (setf (aref map i j) #\X)
-                 (setf (state-position state) nil)
-                 nil)))))))
+(defun all-moves (state)
+  (loop for result = (one-move state)
+        while (eq result :continue)
+        finally (return result)))
 
-(defun print-map (map)
-  (loop for i from 0 below (array-dimension map 0) do
-    (loop for j from 0 below (array-dimension map 1) do
-      (princ (aref map i j)))
-    (terpri)))
+
+(defun count-guard-blockers (final-state initial-state)
+  (let ((blockers (make-hash-table :test 'equal)))
+    (with-slots (map trails) final-state
+      (loop for i from 0 below (array-dimension map 0) do
+        (loop for j from 0 below (array-dimension map 1) do
+          (loop for direction from 0 to 3 do
+            (let ((been-here (aref (aref trails direction) i j))
+                  (boulder (move (cons i j) direction)))
+              (when been-here
+                (when (and
+                       (eq (map-ref map boulder) :free)
+                       (eq (all-moves (make-state-with-boulder initial-state boulder)) :loop))
+                  (setf (gethash boulder blockers) t))))))))
+    (loop for boulder being the hash-keys of blockers sum 1)))
 
 (defun advent-6b (f)
   (let* ((map (read-map f))
-         (state (make-initial-state map))
-         (initial-position (state-position state)))
-    (loop while (one-move state))
-    (let ((blockers (find-guard-blockers state)))
-      (values state
-              blockers
-              (length (remove initial-position blockers :test 'equal)))
-      )))
-
-
-(defun free-spot-p (map i j)
-  (and (< -1 i (array-dimension map 0))
-       (< -1 j (array-dimension map 1))
-       (char/= (aref map i j) #\#)))
-
-(defun look-for-trail (state start-i start-j direction steps)
-  (destructuring-bind (di . dj) (aref *directions* direction)
-    (with-slots (map trails) state
-      (loop for i = (+ start-i di) then (+ i di)
-            for j = (+ start-j dj) then (+ j dj)
-            while (free-spot-p map i j)
-            when (let ((trail-steps (aref (aref trails direction) i j)))
-                   (and trail-steps
-                        (< trail-steps steps)
-                        ))
-              do (return-from look-for-trail (cons i j)))))
-  nil)
-
-
-(defun find-guard-blockers (state)
-  (let ((blockers '()))
-    (with-slots (map trails) state
-      (loop for i from 0 below (array-dimension map 0) do
-        (loop for j from 0 below (array-dimension map 1) do
-          (loop for direction from 0 to 3
-                for (di . dj) = (aref *directions* direction) do
-            (let ((steps (aref (aref trails direction) i j)))
-              (when (and steps
-                         (free-spot-p map (+ i di) (+ j dj))
-                         (look-for-trail state i j (turn direction) steps))
-                (push (cons (+ i di) (+ j dj)) blockers)))))))
-    blockers))
-
-(defun try-find-loop (map trails i j direction)
-  (let ((turn-direction (turn direction)))
-    (destructuring-bind (di . dj) (aref *directions* direction)
-      (destructuring-bind (turn-di . turn-dj) (aref *directions* turn-direction)
-        (print (list (= 1 (aref (aref trails direction) i j))
-                     (free-spot-p map (+ i di) (+ j dj))
-                     (free-spot-p map (+ i turn-di) (+ j turn-dj))
-                     (list 'aref turn-direction (+ i turn-di) (+ j turn-dj))
-                     (= 1 (aref (aref trails turn-direction) (+ i turn-di) (+ j turn-dj)))))
-        (when (and (= 1 (aref (aref trails direction) i j))
-                   (free-spot-p map (+ i di) (+ j dj))
-                   (free-spot-p map (+ i turn-di) (+ j turn-dj))
-                   (= 1 (aref (aref trails turn-direction) (+ i turn-di) (+ j turn-dj))))
-          (cons (+ i di) (+ j dj)))))))
+         (initial-state (make-initial-state map))
+         (final-state (deep-copy-state initial-state))
+         (initial-position (state-position initial-state)))
+    (all-moves final-state)
+    (count-guard-blockers final-state initial-state)))
 
 
 
-(with-input-from-string (f *example-input*) (advent-6b f))
-(with-open-file (f "06_input.txt") (advent-6b f))
+
+;;(with-input-from-string (f *example-input*) (advent-6b f))
+(print (with-open-file (f "06_input.txt") (advent-6b f)))
+(terpri)
