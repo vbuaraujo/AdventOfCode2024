@@ -1,4 +1,5 @@
 (require 'alexandria)
+(require 'sb-sprof)
 
 (defparameter *example-input*
   "....#.....
@@ -138,3 +139,6 @@
 
 ;;(with-input-from-string (f *example-input*) (advent-6b f))
 ;;(print (with-open-file (f "06_input.txt") (advent-6b f)))
+
+(sb-sprof:with-profiling (:report :flat)
+  (with-open-file (f "06_input.txt") (advent-6b f)))
