@@ -64,6 +64,9 @@
   (let* ((map (state-map state))
          (height (array-dimension map 0))
          (width (array-dimension map 1)))
+    (update-trail (state-trails state)
+                  (state-position state)
+                  (state-direction state))
     (destructuring-bind (i . j) (state-position state)
       (destructuring-bind (di . dj) (aref *directions* (state-direction state))
         (let* ((new-i (+ i di)) (new-j (+ j dj)))
@@ -72,13 +75,12 @@
                  (let ((thing (aref map new-i new-j)))
                    (case thing
                      ((#\. #\X) ;; Move there and leave a trail
+
                       (setf (aref map i j) #\X)
                       (setf (aref map new-i new-j)
                             (aref *direction-indicators* (state-direction state)))
                       (setf (state-position state) (cons new-i new-j))
-                      (update-trail (state-trails state)
-                                    (state-position state)
-                                    (state-direction state))
+
                       )
                      (otherwise ;; Can't move, let's turn and try again.
                       (setf (state-direction state) (turn (state-direction state)))
@@ -112,7 +114,8 @@
          (initial-position (state-position state)))
     (loop while (one-move state))
     (let ((blockers (find-guard-blockers state)))
-      (length (remove initial-position blockers :test 'equal)))))
+      (values state blockers))))
+;;      (length (remove initial-position blockers :test 'equal)))))
 
 
 (defun free-spot-p (map i j)
@@ -140,13 +143,28 @@
     (with-slots (map trails) state
       (loop for i from 0 below (array-dimension map 0) do
         (loop for j from 0 below (array-dimension map 1) do
-          (loop for direction from 0 to 3
-                for (di . dj) = (aref *directions* direction)
-                when (and (= 1 (aref (aref trails direction) i j))
-                          (free-spot-p map (+ i di) (+ j dj))
-                          (look-for-trail state i j (turn direction)))
-                  do (push (cons (+ i di) (+ j dj)) blockers)))))
+          (loop for direction from 0 to 3 do
+            (when (= 1 (aref (aref trails direction) i j))
+              (let ((try (try-find-loop map trails i j direction)))
+                (when try
+                  (format t "Here at ~a ~a [dir ~a], found ~a~%" i j direction try)
+                  (push try blockers))))))))
     blockers))
+
+(defun try-find-loop (map trails i j direction)
+  (let ((turn-direction (turn direction)))
+    (destructuring-bind (di . dj) (aref *directions* direction)
+      (destructuring-bind (turn-di . turn-dj) (aref *directions* turn-direction)
+        (print (list (= 1 (aref (aref trails direction) i j))
+                     (free-spot-p map (+ i di) (+ j dj))
+                     (free-spot-p map (+ i turn-di) (+ j turn-dj))
+                     (list 'aref turn-direction (+ i turn-di) (+ j turn-dj))
+                     (= 1 (aref (aref trails turn-direction) (+ i turn-di) (+ j turn-dj)))))
+        (when (and (= 1 (aref (aref trails direction) i j))
+                   (free-spot-p map (+ i di) (+ j dj))
+                   (free-spot-p map (+ i turn-di) (+ j turn-dj))
+                   (= 1 (aref (aref trails turn-direction) (+ i turn-di) (+ j turn-dj))))
+          (cons (+ i di) (+ j dj)))))))
 
 
 
